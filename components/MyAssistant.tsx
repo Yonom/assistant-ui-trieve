@@ -7,17 +7,10 @@ import {
 } from "@assistant-ui/react";
 import { makeMarkdownText } from "@assistant-ui/react-markdown";
 
-import {
-  getHistory,
-  createTopic,
-  createMessage,
-  Chunk,
-  TrieveStreamPart,
-  editMessage,
-  regenerateMessage,
-} from "@/utils/trieve";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { asAsyncIterable } from "@/utils/trieve/asAsyncIterable";
+import { trieve } from "@/utils/trieve/trieve";
+import { toTrieveStream, TrieveStreamPart } from "@/utils/trieve/trieveStream";
+import { Chunk } from "@/utils/trieve";
 
 const MarkdownText = makeMarkdownText();
 
@@ -36,21 +29,23 @@ const convertMessage = (message: Message): ThreadMessageLike => {
   };
 };
 
-const DATASET_ID = process.env.NEXT_PUBLIC_TRIEVE_DATASET_ID!;
 const OWNER_ID = "abcd";
 
-const fetchMessages = async (topicId: string | undefined) => {
-  if (!topicId) return [];
-  return getHistory({
-    dataset_id: DATASET_ID,
-    messages_topic_id: topicId,
+const fetchMessages = async (messagesTopicId: string | undefined) => {
+  if (!messagesTopicId) return [];
+  return trieve.getAllMessagesForTopic({
+    messagesTopicId,
   });
+};
+
+const fetchInitialSuggestions = async () => {
+  return (await trieve.suggestedQueries({})).queries;
 };
 
 const sliceMessagesUntil = (messages: Message[], messageId: string | null) => {
   if (messageId == null) return [];
 
-  let messageIdx = messages.findIndex(
+  const messageIdx = messages.findIndex(
     (m) => m.sort_order.toString() === messageId
   );
   if (messageIdx === -1)
@@ -64,6 +59,7 @@ export function MyAssistant() {
   const threadIdRef = useRef<string | undefined>();
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const withRunning = useCallback(async <T,>(promise: Promise<T>) => {
     setIsRunning(true);
@@ -78,12 +74,15 @@ export function MyAssistant() {
     fetchMessages(undefined).then((data) => {
       setMessages(data);
     });
+    fetchInitialSuggestions().then((data) => {
+      setSuggestions(data);
+    });
   }, []);
 
   const handleStream = useCallback(
-    async (stream: ReadableStream<TrieveStreamPart>) => {
+    async (stream: AsyncIterable<TrieveStreamPart>) => {
       let assistantMessage = "";
-      for await (const chunk of asAsyncIterable(stream)) {
+      for await (const chunk of stream) {
         if (chunk.type === "text-delta") {
           assistantMessage += chunk.textDelta;
           setMessages((prev) => [
@@ -133,8 +132,7 @@ export function MyAssistant() {
 
       if (!threadIdRef.current) {
         const topicResponse = await withRunning(
-          createTopic({
-            dataset_id: DATASET_ID,
+          trieve.createTopic({
             owner_id: OWNER_ID,
             first_user_message: userMessage,
           })
@@ -144,11 +142,13 @@ export function MyAssistant() {
       }
 
       await withRunning(
-        createMessage({
-          dataset_id: DATASET_ID,
-          topic_id: threadIdRef.current,
-          new_message_content: userMessage,
-        }).then(handleStream)
+        trieve
+          .createMessageReader({
+            topic_id: threadIdRef.current,
+            new_message_content: userMessage,
+          })
+          .then(toTrieveStream)
+          .then(handleStream)
       );
     },
     onEdit: async ({ content, parentId }) => {
@@ -177,12 +177,14 @@ export function MyAssistant() {
       });
 
       await withRunning(
-        editMessage({
-          dataset_id: DATASET_ID,
-          topic_id: threadIdRef.current!,
-          message_sort_order,
-          new_message_content: userMessage,
-        }).then(handleStream)
+        trieve
+          .editMessageReader({
+            topic_id: threadIdRef.current!,
+            message_sort_order,
+            new_message_content: userMessage,
+          })
+          .then(toTrieveStream)
+          .then(handleStream)
       );
     },
 
@@ -197,10 +199,12 @@ export function MyAssistant() {
       ]);
 
       await withRunning(
-        regenerateMessage({
-          dataset_id: DATASET_ID,
-          topic_id: threadIdRef.current!,
-        }).then(handleStream)
+        trieve
+          .regenerateMessageReader({
+            topic_id: threadIdRef.current!,
+          })
+          .then(toTrieveStream)
+          .then(handleStream)
       );
     },
   });
@@ -210,6 +214,11 @@ export function MyAssistant() {
       <p className="text-center font-bold text-xl">{title}</p>
       <Thread
         runtime={runtime}
+        welcome={{
+          suggestions: suggestions.slice(0, 3).map((s) => ({
+            prompt: s,
+          })),
+        }}
         assistantMessage={{ components: { Text: MarkdownText } }}
       />
     </div>

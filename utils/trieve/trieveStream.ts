@@ -10,7 +10,33 @@ export type TrieveStreamPart =
       citations: Chunk[];
     };
 
-export function trieveStream() {
+function readerToReadableStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) {
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        controller.error(error);
+      } finally {
+        controller.close();
+        reader.releaseLock();
+      }
+    },
+    cancel() {
+      reader.releaseLock();
+    },
+  });
+}
+
+function trieveStream() {
   let citationsJsonText = "";
   let isHandlingCitations = true;
 
@@ -47,10 +73,35 @@ export function trieveStream() {
             chunkParts.length = 0;
           } catch (e) {
             // not a valid json
-            citationsJsonText += "||";
           }
         }
       }
     },
   });
 }
+
+export type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
+export function makeAsyncIterable<T>(
+  source: ReadableStream<T>
+): AsyncIterableStream<T> {
+  (source as AsyncIterableStream<T>)[Symbol.asyncIterator] = () => {
+    const reader = source.getReader();
+    return {
+      async next(): Promise<IteratorResult<T, undefined>> {
+        const { done, value } = await reader.read();
+        return done ? { done: true, value: undefined } : { done: false, value };
+      },
+    };
+  };
+
+  return source as AsyncIterableStream<T>;
+}
+
+export const toTrieveStream = (
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) =>
+  makeAsyncIterable(
+    readerToReadableStream(reader)
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(trieveStream())
+  );

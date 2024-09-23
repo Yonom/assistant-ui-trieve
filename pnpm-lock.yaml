@@ -29,6 +29,9 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@3.4.12)
+      trieve-ts-sdk:
+        specifier: ^0.0.7
+        version: 0.0.7
       zod:
         specifier: ^3.23.8
         version: 3.23.8
@@ -2090,6 +2093,9 @@ packages:
   to-regex-range@5.0.1:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
+
+  trieve-ts-sdk@0.0.7:
+    resolution: {integrity: sha512-lOhpDpRAz6hdTAjbwpl7sIXIb7Y0J0qxZChdoDL8uLRTdIz2s9RLXlqZofq87aGXuihsC35pSrfr+vCiyUeGnA==}
 
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
@@ -4718,6 +4724,8 @@ snapshots:
   to-regex-range@5.0.1:
     dependencies:
       is-number: 7.0.0
+
+  trieve-ts-sdk@0.0.7: {}
 
   trim-lines@3.0.1: {}
 
