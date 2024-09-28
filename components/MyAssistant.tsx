@@ -1,9 +1,13 @@
 "use client";
 
 import {
+  getExternalStoreMessage,
+  TextContentPartProvider,
   Thread,
   ThreadMessageLike,
+  useContentPartText,
   useExternalStoreRuntime,
+  useMessage,
 } from "@assistant-ui/react";
 import { makeMarkdownText } from "@assistant-ui/react-markdown";
 
@@ -11,8 +15,103 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { trieve } from "@/utils/trieve/trieve";
 import { toTrieveStream, TrieveStreamPart } from "@/utils/trieve/trieveStream";
 import { Chunk } from "@/utils/trieve";
+import { Root } from "mdast";
+import { visit, SKIP } from "unist-util-visit";
+import remarkGfm from "remark-gfm";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 
-const MarkdownText = makeMarkdownText();
+function removeFootnoteDefinitions() {
+  return (tree: Root) => {
+    visit(tree, "footnoteDefinition", (_, index, parent) => {
+      if (parent && index !== undefined) {
+        parent.children.splice(index, 1);
+        return [SKIP, index];
+      }
+    });
+  };
+}
+
+const Citation = ({
+  node,
+  ...rest
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  node?: any;
+}) => {
+  const assistantUiMessage = useMessage();
+
+  const indexString = node.children[0].children[0].value;
+  let index;
+  try {
+    index = parseInt(indexString.replace(/[^0-9]/g, ""), 10);
+  } catch (e) {
+    return <sup {...rest} />;
+  }
+
+  const message = getExternalStoreMessage<Message>(assistantUiMessage.message);
+  const citation = message?.citations?.[index];
+
+  if (citation === undefined) return <sup {...rest} />;
+
+  console.log({ citation, link: citation.link });
+  return (
+    <HoverCard>
+      <HoverCardTrigger asChild>
+        <sup {...rest} />
+      </HoverCardTrigger>
+      <HoverCardContent>
+        <h3 className="font-bold">
+          <a href={citation.link}>
+            {(citation.metadata as any)?.title ??
+              (citation.metadata as any)?.parent_title}
+          </a>
+        </h3>
+        <p className="font-sm italic pb-4">
+          by {(citation.metadata as any)?.by}
+        </p>
+        <p>{citation.chunk_html}</p>
+      </HoverCardContent>
+    </HoverCard>
+  );
+};
+
+const MarkdownText = makeMarkdownText({
+  remarkPlugins: [remarkGfm, removeFootnoteDefinitions],
+  components: {
+    sup: Citation,
+  },
+});
+
+function generateDummyCitations(citationCount: number) {
+  return Array.from(
+    { length: citationCount },
+    (_, i) => `\n[^${i}]: dummy`
+  ).join("");
+}
+
+const MarkdownTextWithFootnotes = () => {
+  const message = useMessage();
+  const citationCount =
+    getExternalStoreMessage<Message>(message.message)?.citations?.length ?? 0;
+
+  const {
+    part: { text },
+    status,
+  } = useContentPartText();
+  const appendText = "\n\n" + generateDummyCitations(citationCount);
+  return (
+    <TextContentPartProvider
+      text={text + appendText}
+      isRunning={status.type === "running"}
+    >
+      <MarkdownText />
+    </TextContentPartProvider>
+  );
+};
 
 export interface Message {
   sort_order: number;
@@ -219,7 +318,7 @@ export function MyAssistant() {
             prompt: s,
           })),
         }}
-        assistantMessage={{ components: { Text: MarkdownText } }}
+        assistantMessage={{ components: { Text: MarkdownTextWithFootnotes } }}
       />
     </div>
   );
